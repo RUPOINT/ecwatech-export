@@ -7,19 +7,20 @@
 - нормализует данные в единую таблицу (без колонки логотип),
 - даёт хелперы для сохранения в Excel/CSV/JSON.
 
-Зависимости (для DOCX и экспорта):
-    pip install lxml pandas openpyxl
+Зависимости:
+  JSON: ничего дополнительно.
+  DOCX: lxml (если установлена) или встроенный xml.etree (работает без внешних библиотек).
 """
 
 import json, re, zipfile
 from pathlib import Path
 from typing import List, Dict, Tuple
 
-# lxml нужен только для чтения DOCX; если его нет — JSON всё равно работает
+# lxml — если есть; иначе безопасный стандартный парсер
 try:
     import lxml.etree as ET
 except Exception:
-    ET = None
+    import xml.etree.ElementTree as ET  # fallback
 
 BASE_URL = "https://personal-account.expovr.ru"
 
@@ -109,14 +110,20 @@ def load_json(path: Path) -> Dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 def _docx_extract_text(path: Path) -> str:
-    """Извлекает текст из DOCX (word/document.xml). Нужен lxml."""
-    if ET is None:
-        raise RuntimeError("Для разбора DOCX требуется lxml. Установите: pip install lxml")
+    """Извлекает текст из DOCX (word/document.xml) — работает и с lxml, и со встроенным xml.etree."""
     with zipfile.ZipFile(path, 'r') as z:
         xml = z.read('word/document.xml')
     root = ET.fromstring(xml)
+    # пространство имён для DOCX
     ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
-    paras = ["".join(t.text or "" for t in p.findall('.//w:t', ns)) for p in root.findall('.//w:p', ns)]
+    # собираем текст всех параграфов
+    paras = []
+    for p in root.findall('.//w:p', ns):
+        ts = []
+        for t in p.findall('.//w:t', ns):
+            txt = t.text or ""
+            ts.append(txt)
+        paras.append("".join(ts))
     return "\n".join(paras)
 
 def load_from_docx(path: Path) -> Dict:
